@@ -1,7 +1,10 @@
 import click
 import requests
+from sqlalchemy import create_engine, Column, Integer, String, Float
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 
-# Define a list of supported currencies (you can add more)
+# List of supported currencies
 SUPPORTED_CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'KES', 'BTS', 'AED', 'AFN', 'ALL', 'AMD', 'ANG', 'AOA', 'ARS', 'AUD', 'AWG', 'AZN',
     'BAM', 'BBD', 'BDT', 'BGN', 'BHD', 'BIF', 'BMD', 'BND', 'BOB', 'BRL', 'BSD', 'BTC', 'BTN', 'BWP', 'BYN', 'BYR', 'BZD',
     'CAD', 'CDF', 'CHF', 'CLF', 'CLP', 'CNH', 'CNY', 'COP', 'CRC', 'CUC', 'CUP', 'CVE', 'CZK', 'DJF', 'DKK', 'DOP', 'DZD',
@@ -14,21 +17,35 @@ SUPPORTED_CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'KES', 'BTS', 'AED', 
     'TOP', 'TRY', 'TTD', 'TWD', 'TZS', 'UAH', 'UGX', 'USD', 'UYU', 'UZS', 'VES', 'VND', 'VUV', 'WST', 'XAF', 'XAG', 'XAU',
     'XCD', 'XDR', 'XOF', 'XPD', 'XPF', 'XPT', 'YER', 'ZAR', 'ZMK', 'ZMW']
 
-# Add your Open Exchange Rates API key here
+# Open Exchange Rates API 
 API_KEY = '64c5d43b9ef448918d7c9eab33e9d291'
 BASE_URL = 'https://openexchangerates.org/api/latest.json'
 
 # Default base currency
 DEFAULT_BASE_CURRENCY = 'USD'
 
+# Database configuration
+DATABASE_URL = 'sqlite:///currency_rates.db'
+
+# SQLAlchemy setup
+Base = declarative_base()
+
+class CurrencyRate(Base):
+    __tablename__ = 'currency_rates'
+    id = Column(Integer, primary_key=True)
+    currency = Column(String, nullable=False)
+    rate = Column(Float, nullable=False)
+
+# CLI group
 @click.group()
 def cli():
     '''
-    CLI to work with currency rates
+    CLI to work with currency rates and database.
     '''
     pass
 
-@click.command(name='list-currencies', help="List supported currencies")
+# CLI commands
+@cli.command(name='currencies', help="List supported currencies")
 def list_currencies():
     '''
     Lists supported currencies
@@ -37,7 +54,7 @@ def list_currencies():
     for currency in SUPPORTED_CURRENCIES:
         click.echo(currency)
 
-@click.command(name='set-default-currency', help="Set a default currency for conversions")
+@cli.command(name='default', help="Set a default currency for conversions")
 @click.argument('currency')
 def set_default_currency(currency):
     '''
@@ -50,7 +67,7 @@ def set_default_currency(currency):
     DEFAULT_BASE_CURRENCY = currency
     click.echo(f"Default currency set to {currency}")
 
-@click.command(name='rate', help="Display currency rate for a single currency")
+@cli.command(name='rate', help="Display currency rate for a single currency")
 @click.argument('currency')
 def display_currency_rate(currency):
     '''
@@ -66,7 +83,7 @@ def display_currency_rate(currency):
         'base': DEFAULT_BASE_CURRENCY,
     }
     result = requests.get(f'{BASE_URL}?base={DEFAULT_BASE_CURRENCY}', params=params)
-    
+
     if result.status_code != 200:
         click.echo(f'Error fetching exchange rates.')
         return
@@ -77,13 +94,20 @@ def display_currency_rate(currency):
         if currency in result_dict['rates']:
             rate = result_dict['rates'][currency]
             click.echo(f'1 {DEFAULT_BASE_CURRENCY} = {rate} {currency}')
+            # Save the rate to the database
+            engine = create_engine(DATABASE_URL)
+            Base.metadata.create_all(engine)
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            rate_record = CurrencyRate(currency=currency, rate=rate)
+            session.add(rate_record)
+            session.commit()
         else:
             click.echo(f'Exchange rate not found for {currency}')
     else:
         click.echo(f'Error fetching exchange rates.')
 
-@click.command(name='convert', help="Convert a currency amount to another currency,eg: cli convert 100 USD EUR")
-
+@cli.command(name='convert', help="Convert a currency amount to another currency, e.g., cli convert-currency 100 USD EUR")
 @click.argument('amount', type=float)
 @click.argument('from_currency')
 @click.argument('to_currency')
@@ -105,7 +129,7 @@ def convert_currency(amount, from_currency, to_currency):
         'base': DEFAULT_BASE_CURRENCY,
     }
     result = requests.get(f'{BASE_URL}?base={DEFAULT_BASE_CURRENCY}', params=params)
-    
+
     if result.status_code != 200:
         click.echo(f'Error fetching exchange rates.')
         return
@@ -123,8 +147,6 @@ def convert_currency(amount, from_currency, to_currency):
     else:
         click.echo(f'Error fetching exchange rates.')
 
-# Add the commands to the CLI group
-cli.add_command(list_currencies)
-cli.add_command(set_default_currency)
-cli.add_command(display_currency_rate)
-cli.add_command(convert_currency)
+if __name__ == '__main__':
+    cli()
+    
